@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BAX Platform</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar">
+        <div class="brand-block">
+          <div class="mark">β</div>
+          <div>
+            <h1>BAX Platform</h1>
+            <p>Bayesian experiment planner</p>
+          </div>
+        </div>
+
+        <nav class="steps" aria-label="Workflow">
+          <button class="step-link active" data-section="inputs" type="button">Inputs</button>
+          <button class="step-link" data-section="outputs" type="button">Objectives</button>
+          <button class="step-link" data-section="data" type="button">Data</button>
+          <button class="step-link" data-section="recommendation" type="button">Next Run</button>
+        </nav>
+
+        <div class="run-panel">
+          <button id="runOptimizer" class="primary-action" type="button">
+            <span aria-hidden="true">▶</span>
+            Recommend next experiment
+          </button>
+          <div id="statusLine" class="status-line">Waiting for a CSV upload.</div>
+          <div id="scriptStatus" class="script-status">Interface script not loaded.</div>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <section id="inputs" class="band">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Experimental knobs</p>
+              <h2>Input Variables</h2>
+            </div>
+            <button id="addInput" class="icon-action" type="button" title="Add input variable" aria-label="Add input variable">+</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Minimum</th>
+                  <th>Maximum</th>
+                  <th>Step</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="inputRows"></tbody>
+            </table>
+          </div>
+          <div id="gridSummary" class="summary-strip"></div>
+        </section>
+
+        <section id="outputs" class="band">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Optimization target</p>
+              <h2>Output Objectives</h2>
+            </div>
+            <button id="addOutput" class="icon-action" type="button" title="Add output variable" aria-label="Add output variable">+</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Goal</th>
+                  <th>Target</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="outputRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="data" class="band">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Measurements</p>
+              <h2>Upload CSV</h2>
+            </div>
+            <label class="file-action">
+              <input id="csvInput" type="file" accept=".csv,text/csv" />
+              Choose CSV
+            </label>
+          </div>
+          <div class="data-grid">
+            <div class="upload-zone" id="dropZone">
+              <div class="upload-art" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <strong id="fileName">No file selected</strong>
+              <p>CSV columns should match the input and output variable names.</p>
+            </div>
+            <div class="quality-panel">
+              <div>
+                <span class="metric" id="rowCount">0</span>
+                <span class="metric-label">usable rows</span>
+              </div>
+              <div>
+                <span class="metric" id="measuredCount">0</span>
+                <span class="metric-label">grid points measured</span>
+              </div>
+              <div>
+                <span class="metric" id="frontCount">0</span>
+                <span class="metric-label">Pareto front</span>
+              </div>
+            </div>
+          </div>
+          <div id="csvPreview" class="preview"></div>
+        </section>
+
+        <section id="recommendation" class="band recommendation-band">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Bayesian optimization</p>
+              <h2>Recommended Next Run</h2>
+            </div>
+            <div class="acquisition-controls" aria-label="Acquisition settings">
+              <div class="standard-pill">Standard</div>
+              <label class="advanced-toggle">
+                <input id="advancedMode" type="checkbox" />
+                Advanced
+              </label>
+              <div id="betaControl" class="beta-control" hidden>
+                <div class="beta-head">
+                  <span>Exploit</span>
+                  <strong>β <span id="betaValue">1.20</span></strong>
+                  <span>Explore</span>
+                </div>
+                <input id="betaSlider" type="range" min="0" max="4" step="0.05" value="1.2" aria-label="UCB beta parameter" />
+              </div>
+            </div>
+          </div>
+
+          <div class="result-layout">
+            <div class="next-run" id="nextRun">
+              <div class="empty-state">
+                <span>∴</span>
+                <p>Configure variables, upload data, then run the optimizer.</p>
+              </div>
+            </div>
+            <div class="chart-panel">
+              <canvas id="paretoCanvas" width="920" height="520" aria-label="Pareto chart"></canvas>
+            </div>
+          </div>
+
+          <div class="ranked-panel">
+            <div class="section-head small">
+              <div>
+                <p class="eyebrow">Batch planning</p>
+                <h3>Top Candidate Grid Points</h3>
+              </div>
+              <button id="downloadResults" class="secondary-action" type="button" disabled>Download</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead id="candidateHead"></thead>
+                <tbody id="candidateRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js?v=4"></script>
+  </body>
+</html>
