@@ -1,0 +1,9 @@
+{
+  "name": "bax-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:js": "node --check src/main.js && node --check src/optimizer.js && node --check src/csv.js && node --check src/utils.js"
+  }
+}
