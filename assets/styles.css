@@ -457,6 +457,10 @@ input:disabled {
   gap: 5px;
 }
 
+.beta-control[hidden] {
+  display: none;
+}
+
 .beta-head {
   display: flex;
   align-items: center;
