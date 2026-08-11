@@ -1,45 +1,74 @@
 # BAX Platform
 
-BAX Platform is a static GitHub Pages app for planning catalyst experiments with Bayesian optimization. Experimentalists define a gridded search space, add one or more objectives, upload measured data, and receive the next recommended experiment.
+BAX Platform helps experimentalists choose the next experiment to run from a discrete grid of experimental conditions. Upload a CSV of completed experiments, define or load your inputs and objectives, and the app recommends the next unmeasured grid point using Bayesian optimization.
 
-## Project Layout
+Use the website here: [BAX Platform](https://pranavkakhandiki.github.io/bax-platform/)
 
-```text
-.
-├── index.html                  # GitHub Pages entry point
-├── assets/
-│   └── styles.css              # App styling
-├── src/                        # Browser app and client-side optimizer
-│   ├── main.js                 # UI state, rendering, and events
-│   ├── optimizer.js            # Dependency-free BO implementation for GitHub Pages
-│   ├── csv.js                  # CSV parser
-│   └── utils.js                # Formatting and parsing helpers
-├── python/
-│   └── bax_platform/           # Python reference optimizer and future BAX home
-└── notebooks/
-    ├── bo_validation_notebook.ipynb
-    ├── sample_bo_starting_points.csv
-    └── karime.csv
+## What It Does
+
+- Builds a grid from experimental input variables.
+- Supports objectives to maximize, minimize, or target a specific value.
+- Reads existing measurements from CSV.
+- Shows the measured Pareto front.
+- Recommends the next experiment with a UCB-style Bayesian optimization score.
+- Exports ranked candidate experiments as CSV.
+
+## Quick Start
+
+1. Open the [website](https://pranavkakhandiki.github.io/bax-platform/).
+2. Upload a self-describing CSV, such as `notebooks/sample_bo_starting_points.csv`.
+3. Confirm the input variables and objectives loaded correctly.
+4. Click `Recommend next experiment`.
+5. Run the suggested experiment, add the result to your CSV, and upload the updated file again.
+
+## CSV Format
+
+The app accepts a normal measurement table, with optional setup rows at the top. Setup rows start with `#` and let the website recover the input bounds, step sizes, and objectives from the CSV itself.
+
+```csv
+# input,temperature,200,300,10
+# input,pressure,20,60,4
+# objective,yield,maximize,
+# objective,median,target,10
+temperature,pressure,yield,median
+200,20,0.930,10.426
+200,40,27.330,7.383
+250,44,78.484,9.968
 ```
 
-## Why JavaScript And Python?
+Input rows use:
 
-The deployed website is static, so the optimizer in `src/optimizer.js` runs directly in the browser without a backend. The Python package mirrors the workflow for validation notebooks and future BAX integration. When a Python backend or Pyodide runtime is added, the UI can call into the Python/BAX layer without changing the experimentalist-facing workflow.
+```csv
+# input,name,min,max,step
+```
+
+Objective rows use:
+
+```csv
+# objective,name,maximize,
+# objective,name,minimize,
+# objective,name,target,target_value
+```
+
+The measurement table columns must match the input and objective names exactly.
+
+## Example Files
+
+- `notebooks/sample_bo_starting_points.csv`: small temperature/pressure example.
+- `notebooks/bo_validation_notebook.ipynb`: Python sanity check that mirrors the website recommendation.
 
 ## Local Development
 
-Serve the folder locally:
+Serve the site locally from the repo root:
 
 ```bash
 python3 -m http.server 8000 --bind 127.0.0.1
 ```
 
-Then open `http://127.0.0.1:8000/`.
+Then open:
 
-## Data Format
+```text
+http://127.0.0.1:8000/
+```
 
-The CSV must use column names that exactly match the configured input and output variable names. See `notebooks/sample_bo_starting_points.csv` for a minimal example with `temperature`, `pressure`, `yield`, and `median`.
-
-## Current Optimizer
-
-The current browser optimizer fits an independent lightweight Gaussian-process surrogate for each output, converts objectives into utility scores, calculates the measured Pareto front, and ranks unmeasured grid points with a UCB-style acquisition score.
+The deployed app is static and runs entirely in the browser, so it works on GitHub Pages without a backend.

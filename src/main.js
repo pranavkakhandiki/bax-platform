@@ -172,12 +172,23 @@ async function loadCsvFile(file) {
   if (!file) return;
   const text = await file.text();
   const parsed = parseCsv(text);
+  const loadedInputs = parsed.metadata?.inputs || [];
+  const loadedOutputs = parsed.metadata?.outputs || [];
+  if (loadedInputs.length) {
+    state.inputs = loadedInputs;
+    renderInputs();
+  }
+  if (loadedOutputs.length) {
+    state.outputs = loadedOutputs;
+    renderOutputs();
+  }
   state.csvHeaders = parsed.headers;
   state.csvRows = parsed.data;
   els.fileName.textContent = file.name;
   resetResults();
   renderCsvPreview();
-  setStatus(`Loaded ${parsed.data.length.toLocaleString()} CSV rows.`);
+  const setupText = loadedInputs.length || loadedOutputs.length ? " and setup metadata" : "";
+  setStatus(`Loaded ${parsed.data.length.toLocaleString()} CSV rows${setupText}.`);
 }
 
 function runOptimizer() {

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import io
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 import numpy as np
@@ -40,6 +43,46 @@ def make_grid(inputs: list[InputSpec]) -> pd.DataFrame:
     mesh = np.meshgrid(*[axis_values(spec) for spec in inputs], indexing="ij")
     flat = np.column_stack([item.ravel() for item in mesh])
     return pd.DataFrame(flat, columns=names)
+
+
+def load_experiment_csv(path: str | Path) -> tuple[pd.DataFrame, list[InputSpec], list[ObjectiveSpec]]:
+    metadata_inputs: list[InputSpec] = []
+    metadata_objectives: list[ObjectiveSpec] = []
+    measurement_rows: list[list[str]] = []
+
+    with Path(path).open(newline="") as handle:
+        reader = csv.reader(handle)
+        for row in reader:
+            if not row or not any(cell.strip() for cell in row):
+                continue
+            kind = row[0].strip().removeprefix("#").strip().lower()
+            if kind == "input":
+                metadata_inputs.append(
+                    InputSpec(
+                        name=row[1].strip(),
+                        minimum=float(row[2]),
+                        maximum=float(row[3]),
+                        step=float(row[4]),
+                    )
+                )
+                continue
+            if kind in {"objective", "output"}:
+                goal = row[2].strip().lower()
+                target = float(row[3]) if goal == "target" and len(row) > 3 and row[3].strip() else None
+                metadata_objectives.append(ObjectiveSpec(name=row[1].strip(), goal=goal, target=target))
+                continue
+            if row[0].strip().startswith("#"):
+                continue
+            measurement_rows.append(row)
+
+    if not measurement_rows:
+        raise ValueError("No measurement table found in CSV.")
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerows(measurement_rows)
+    buffer.seek(0)
+    data = pd.read_csv(buffer)
+    return data, metadata_inputs, metadata_objectives
 
 
 def synthetic_experiment(temperature: float, pressure: float) -> tuple[float, float]:

@@ -1,3 +1,6 @@
+# input,am_c,0,0.5,0.1
+# input,ph,10.1,13.1,0.5
+# objective,med_part,target,10
 am_c,ph,med_part
 0,10.1,12
 0.1,13.1,19

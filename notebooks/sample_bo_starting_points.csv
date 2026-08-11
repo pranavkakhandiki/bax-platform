@@ -1,3 +1,7 @@
+# input,temperature,200,300,10
+# input,pressure,20,60,4
+# objective,yield,maximize,
+# objective,median,target,10
 temperature,pressure,yield,median
 200,20,0.930,10.426
 200,40,27.330,7.383
