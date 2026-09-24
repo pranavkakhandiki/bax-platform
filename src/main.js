@@ -293,7 +293,7 @@ function drawParetoChart(result) {
   ctx.fillStyle = "#fbfcfd";
   ctx.fillRect(0, 0, width, height);
 
-  const pad = { left: 54, right: 24, top: 24, bottom: 48 };
+  const pad = { left: 76, right: 24, top: 28, bottom: 64 };
   const plotWidth = width - pad.left - pad.right;
   const plotHeight = height - pad.top - pad.bottom;
   const outputX = state.outputs[0];
@@ -316,6 +316,16 @@ function drawParetoChart(result) {
   const xScale = (value) => pad.left + ((value - minX) / spanX) * plotWidth;
   const yScale = (value) => pad.top + plotHeight - ((value - minY) / spanY) * plotHeight;
 
+  const formatTick = (value, span) => {
+    const magnitude = Math.max(Math.abs(value), Math.abs(span));
+    if (magnitude >= 1e6 || (magnitude > 0 && magnitude < 1e-3)) {
+      return value.toExponential(2);
+    }
+    const tickStep = Math.abs(span) / 4;
+    const digits = tickStep >= 1 ? 2 : Math.min(5, Math.max(2, Math.ceil(-Math.log10(tickStep)) + 1));
+    return fmt(value, digits);
+  };
+
   ctx.strokeStyle = "#d8dee7";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -331,11 +341,28 @@ function drawParetoChart(result) {
 
   ctx.fillStyle = "#65717f";
   ctx.font = "12px Inter, system-ui, sans-serif";
+  ctx.textBaseline = "top";
+  for (let i = 0; i <= 4; i += 1) {
+    const x = pad.left + (plotWidth * i) / 4;
+    const y = pad.top + (plotHeight * i) / 4;
+    const xValue = minX + (spanX * i) / 4;
+    const yValue = maxY - (spanY * i) / 4;
+
+    ctx.textAlign = "center";
+    ctx.fillText(formatTick(xValue, spanX), x, pad.top + plotHeight + 8);
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(formatTick(yValue, spanY), pad.left - 10, y);
+    ctx.textBaseline = "top";
+  }
+
   ctx.textAlign = "center";
-  ctx.fillText(outputX.name, pad.left + plotWidth / 2, height - 14);
+  ctx.textBaseline = "bottom";
+  ctx.fillText(outputX.name, pad.left + plotWidth / 2, height - 8);
   ctx.save();
-  ctx.translate(16, pad.top + plotHeight / 2);
+  ctx.translate(14, pad.top + plotHeight / 2);
   ctx.rotate(-Math.PI / 2);
+  ctx.textBaseline = "top";
   ctx.fillText(outputY.name, 0, 0);
   ctx.restore();
 
@@ -363,6 +390,7 @@ function drawParetoChart(result) {
     ["Next", "#b85050"],
   ];
   ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
   legend.forEach(([label, color], index) => {
     const x = pad.left + index * 122;
     const y = 18;
