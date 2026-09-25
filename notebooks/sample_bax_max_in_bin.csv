@@ -1,0 +1,27 @@
+# method,bax
+# bax_algorithm,max_in_bin
+# bax_maximize,yield
+# bax_bin_output,median
+# bax_bin,8,10
+# bax_bin,10,12
+# bax_bin,12,14
+# bax_points_per_bin,1
+# bax_epsilon,0
+# input,time,1,12,1
+# input,temperature,200,240,20
+# input,pressure,20,44,4
+# output,yield
+# output,median
+time,temperature,pressure,yield,median
+1,200,20,22,8.2
+1,220,32,38,9.1
+2,240,44,41,13.8
+3,200,36,35,10.6
+4,220,20,44,11.3
+5,240,32,61,12.5
+6,200,44,40,13.2
+7,220,36,68,11.8
+8,240,20,57,9.7
+9,200,32,49,10.1
+10,220,44,73,12.9
+11,240,36,70,11.5

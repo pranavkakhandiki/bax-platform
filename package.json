@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check:js": "node --check src/main.js && node --check src/optimizer.js && node --check src/csv.js && node --check src/utils.js"
+    "check:js": "node --check src/main.js && node --check src/optimizer.js && node --check src/bax.js && node --check src/csv.js && node --check src/utils.js",
+    "test": "node --test tests/*.test.js"
   }
 }

@@ -58,6 +58,12 @@ function parseNumber(value) {
 
 function parseMetadataRow(row, metadata) {
   const kind = metadataKind(row);
+  if (kind === "method") {
+    const method = cleanCell(row[1]).toLowerCase();
+    metadata.method = ["bo", "bax"].includes(method) ? method : "";
+    return true;
+  }
+
   if (kind === "input") {
     const name = cleanCell(row[1]);
     if (!name) return true;
@@ -82,12 +88,64 @@ function parseMetadataRow(row, metadata) {
     return true;
   }
 
+  if (kind === "bax_algorithm") {
+    metadata.bax.algorithm = cleanCell(row[1]).toLowerCase();
+    return true;
+  }
+
+  if (kind === "bax_maximize") {
+    metadata.bax.maximizeOutput = cleanCell(row[1]);
+    return true;
+  }
+
+  if (kind === "bax_bin_output") {
+    metadata.bax.binOutput = cleanCell(row[1]);
+    return true;
+  }
+
+  if (kind === "bax_bin") {
+    metadata.bax.bins.push({ min: parseNumber(row[1]), max: parseNumber(row[2]) });
+    return true;
+  }
+
+  if (kind === "bax_points_per_bin") {
+    metadata.bax.pointsPerBin = parseNumber(row[1]);
+    return true;
+  }
+
+  if (kind === "bax_epsilon") {
+    metadata.bax.epsilon = parseNumber(row[1]);
+    return true;
+  }
+
+  if (kind === "bax_bound") {
+    metadata.bax.bounds.push({
+      output: cleanCell(row[1]),
+      min: parseNumber(row[2]),
+      max: parseNumber(row[3]),
+    });
+    return true;
+  }
+
   return cleanCell(row[0]).startsWith("#");
 }
 
 export function parseCsv(text) {
   const rows = parseCsvRows(text);
-  const metadata = { inputs: [], outputs: [] };
+  const metadata = {
+    method: "",
+    inputs: [],
+    outputs: [],
+    bax: {
+      algorithm: "",
+      maximizeOutput: "",
+      binOutput: "",
+      bins: [],
+      pointsPerBin: "",
+      epsilon: "",
+      bounds: [],
+    },
+  };
   let headerIndex = 0;
 
   while (headerIndex < rows.length && parseMetadataRow(rows[headerIndex], metadata)) {

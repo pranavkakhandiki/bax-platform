@@ -318,6 +318,114 @@ input:disabled {
   font-size: 14px;
 }
 
+.method-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 280px));
+  gap: 10px;
+}
+
+.method-switch label {
+  position: relative;
+  cursor: pointer;
+}
+
+.method-switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  opacity: 0;
+}
+
+.method-switch span {
+  display: grid;
+  gap: 3px;
+  min-height: 68px;
+  align-content: center;
+  border: 1px solid #c9d2dd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #ffffff;
+}
+
+.method-switch strong {
+  color: var(--ink);
+  font-size: 17px;
+}
+
+.method-switch small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.method-switch input:checked + span {
+  border-color: var(--focus);
+  background: #edf6f8;
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.method-switch input:focus-visible + span {
+  outline: 3px solid rgba(29, 139, 168, 0.22);
+  outline-offset: 2px;
+}
+
+.bax-settings {
+  display: grid;
+  gap: 18px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.bax-settings[hidden] {
+  display: none;
+}
+
+.field-group {
+  display: grid;
+  gap: 7px;
+}
+
+.field-group > label,
+.parameter-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.algorithm-field {
+  max-width: 360px;
+}
+
+.parameter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px;
+}
+
+.bin-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 18px 0 4px;
+}
+
+.compact-action {
+  min-height: 34px;
+  border: 1px solid #c9d2dd;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: #edf6f8;
+  color: var(--focus);
+  font-weight: 750;
+}
+
+.parameter-table {
+  min-width: 520px;
+}
+
 .data-grid {
   display: grid;
   grid-template-columns: minmax(300px, 1.6fr) minmax(260px, 0.9fr);
@@ -426,6 +534,11 @@ input:disabled {
   grid-template-columns: auto auto minmax(220px, 360px);
   align-items: center;
   gap: 12px;
+}
+
+.acquisition-controls[hidden],
+.standard-pill[hidden] {
+  display: none;
 }
 
 .standard-pill {
@@ -598,7 +711,7 @@ canvas {
   }
 
   .steps {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
   }
 
   .result-layout,
@@ -620,7 +733,9 @@ canvas {
   }
 
   .steps,
-  .quality-panel {
+  .quality-panel,
+  .method-switch,
+  .parameter-grid {
     grid-template-columns: 1fr;
   }
 

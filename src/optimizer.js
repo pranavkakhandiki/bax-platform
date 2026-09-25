@@ -53,7 +53,7 @@ export function makeGrid(inputs) {
   return points;
 }
 
-export function validateProblem({ inputs, outputs, csvRows, csvHeaders }) {
+export function validateProblem({ inputs, outputs, csvRows, csvHeaders, validateObjectives = true }) {
   const inputNames = inputs.map((input) => String(input.name || "").trim()).filter(Boolean);
   const outputNames = outputs.map((output) => String(output.name || "").trim()).filter(Boolean);
   const missing = [];
@@ -67,11 +67,13 @@ export function validateProblem({ inputs, outputs, csvRows, csvHeaders }) {
     if (!gridValues(input).length) missing.push(`${input.name || "An input"} needs a valid min, max, and positive step.`);
   });
 
-  outputs.forEach((output) => {
-    if (output.goal === "target" && !Number.isFinite(Number(output.target))) {
-      missing.push(`${output.name || "A target objective"} needs a numeric target.`);
-    }
-  });
+  if (validateObjectives) {
+    outputs.forEach((output) => {
+      if (output.goal === "target" && !Number.isFinite(Number(output.target))) {
+        missing.push(`${output.name || "A target objective"} needs a numeric target.`);
+      }
+    });
+  }
 
   const neededColumns = [...inputNames, ...outputNames];
   const absentColumns = neededColumns.filter((name) => !csvHeaders.includes(name));
@@ -154,7 +156,7 @@ function choleskySolve(matrix, vector) {
   return x;
 }
 
-function normalizePoints(points, bounds) {
+export function normalizePoints(points, bounds) {
   return points.map((point) =>
     point.map((value, index) => {
       const span = bounds.max[index] - bounds.min[index];
@@ -178,7 +180,7 @@ function median(values) {
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function fitSurrogate(xTrain, yTrain, outputIndex) {
+export function fitSurrogate(xTrain, yTrain, outputIndex) {
   const ys = yTrain.map((row) => row[outputIndex]);
   const mean = ys.reduce((sum, value) => sum + value, 0) / ys.length;
   const variance = ys.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, ys.length - 1);
@@ -212,7 +214,7 @@ function fitSurrogate(xTrain, yTrain, outputIndex) {
   };
 }
 
-function objectiveUtility(value, output, stats) {
+export function objectiveUtility(value, output, stats) {
   const scale = Math.max(stats.max - stats.min, stats.std, 1e-6);
   if (output.goal === "maximize") return (value - stats.min) / scale;
   if (output.goal === "minimize") return (stats.max - value) / scale;
@@ -229,7 +231,7 @@ export function paretoFront(items, utilityKey = "utilities") {
   return items.filter((item, index) => !items.some((other, otherIndex) => otherIndex !== index && isDominated(item[utilityKey], other[utilityKey])));
 }
 
-function computeStats(yTrain, outputs) {
+export function computeStats(yTrain, outputs) {
   return outputs.map((_, outputIndex) => {
     const values = yTrain.map((row) => row[outputIndex]);
     const mean = values.reduce((sum, value) => sum + value, 0) / values.length;

@@ -1,3 +1,4 @@
+# method,bo
 # input,temperature,200,300,10
 # input,pressure,20,60,4
 # objective,yield,maximize,

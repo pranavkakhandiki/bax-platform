@@ -18,7 +18,8 @@
         </div>
 
         <nav class="steps" aria-label="Workflow">
-          <button class="step-link active" data-section="inputs" type="button">Inputs</button>
+          <button class="step-link active" data-section="method" type="button">Method</button>
+          <button class="step-link" data-section="inputs" type="button">Inputs</button>
           <button class="step-link" data-section="outputs" type="button">Objectives</button>
           <button class="step-link" data-section="data" type="button">Data</button>
           <button class="step-link" data-section="recommendation" type="button">Next Run</button>
@@ -35,6 +36,37 @@
       </aside>
 
       <section class="workspace">
+        <section id="method" class="band">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Planning method</p>
+              <h2>Choose BO or BAX</h2>
+            </div>
+          </div>
+
+          <div class="method-switch" role="radiogroup" aria-label="Planning method">
+            <label>
+              <input type="radio" name="method" value="bo" checked />
+              <span><strong>BO</strong><small>Optimize output objectives</small></span>
+            </label>
+            <label>
+              <input type="radio" name="method" value="bax" />
+              <span><strong>BAX</strong><small>Discover an algorithm-defined set</small></span>
+            </label>
+          </div>
+
+          <div id="baxSettings" class="bax-settings" hidden>
+            <div class="field-group algorithm-field">
+              <label for="baxAlgorithm">Algorithm</label>
+              <select id="baxAlgorithm">
+                <option value="max_in_bin">Max-in-Bin</option>
+                <option value="library">Bounded Library</option>
+              </select>
+            </div>
+            <div id="baxParameters"></div>
+          </div>
+        </section>
+
         <section id="inputs" class="band">
           <div class="section-head">
             <div>
@@ -71,7 +103,7 @@
           <div class="table-wrap">
             <table>
               <thead>
-                <tr>
+                <tr id="outputHeader">
                   <th>Name</th>
                   <th>Goal</th>
                   <th>Target</th>
@@ -113,7 +145,7 @@
               </div>
               <div>
                 <span class="metric" id="frontCount">0</span>
-                <span class="metric-label">Pareto front</span>
+                <span id="frontMetricLabel" class="metric-label">Pareto front</span>
               </div>
             </div>
           </div>
@@ -123,10 +155,10 @@
         <section id="recommendation" class="band recommendation-band">
           <div class="section-head">
             <div>
-              <p class="eyebrow">Bayesian optimization</p>
+              <p id="recommendationEyebrow" class="eyebrow">Bayesian optimization</p>
               <h2>Recommended Next Run</h2>
             </div>
-            <div class="acquisition-controls" aria-label="Acquisition settings">
+            <div id="boAcquisitionControls" class="acquisition-controls" aria-label="Acquisition settings">
               <div class="standard-pill">Standard</div>
               <label class="advanced-toggle">
                 <input id="advancedMode" type="checkbox" />
@@ -141,6 +173,7 @@
                 <input id="betaSlider" type="range" min="0" max="4" step="0.05" value="1.2" aria-label="UCB beta parameter" />
               </div>
             </div>
+            <div id="baxAcquisitionLabel" class="standard-pill" hidden>MeanBAX</div>
           </div>
 
           <div class="result-layout">
@@ -151,7 +184,7 @@
               </div>
             </div>
             <div class="chart-panel">
-              <canvas id="paretoCanvas" width="920" height="520" aria-label="Pareto chart"></canvas>
+              <canvas id="paretoCanvas" width="920" height="520" aria-label="Output-space recommendation chart"></canvas>
             </div>
           </div>
 
@@ -174,6 +207,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/main.js?v=3"></script>
+    <script type="module" src="./src/main.js?v=4"></script>
   </body>
 </html>

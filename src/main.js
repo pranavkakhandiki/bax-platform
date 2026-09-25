@@ -1,10 +1,25 @@
 import { parseCsv } from "./csv.js";
+import { BAX_ALGORITHMS, recommendNextBaxExperiment } from "./bax.js";
 import { DEFAULT_BETA, getGridSize, gridValues, recommendNextExperiment, summarizeMeasurements } from "./optimizer.js";
 import { escapeHtml, fmt, parseNumber } from "./utils.js";
 
+function defaultBaxConfig() {
+  return {
+    algorithm: BAX_ALGORITHMS.MAX_IN_BIN,
+    maximizeOutput: "",
+    binOutput: "",
+    bins: [{ min: "", max: "" }],
+    pointsPerBin: 1,
+    epsilon: 0,
+    bounds: [],
+  };
+}
+
 const state = {
+  method: "bo",
   inputs: [],
   outputs: [],
+  baxConfig: defaultBaxConfig(),
   csvRows: [],
   csvHeaders: [],
   beta: DEFAULT_BETA,
@@ -12,7 +27,12 @@ const state = {
 };
 
 const els = {
+  methodInputs: document.querySelectorAll('input[name="method"]'),
+  baxSettings: document.querySelector("#baxSettings"),
+  baxAlgorithm: document.querySelector("#baxAlgorithm"),
+  baxParameters: document.querySelector("#baxParameters"),
   inputRows: document.querySelector("#inputRows"),
+  outputHeader: document.querySelector("#outputHeader"),
   outputRows: document.querySelector("#outputRows"),
   csvInput: document.querySelector("#csvInput"),
   dropZone: document.querySelector("#dropZone"),
@@ -22,6 +42,7 @@ const els = {
   rowCount: document.querySelector("#rowCount"),
   measuredCount: document.querySelector("#measuredCount"),
   frontCount: document.querySelector("#frontCount"),
+  frontMetricLabel: document.querySelector("#frontMetricLabel"),
   csvPreview: document.querySelector("#csvPreview"),
   runOptimizer: document.querySelector("#runOptimizer"),
   nextRun: document.querySelector("#nextRun"),
@@ -35,6 +56,9 @@ const els = {
   betaControl: document.querySelector("#betaControl"),
   betaSlider: document.querySelector("#betaSlider"),
   betaValue: document.querySelector("#betaValue"),
+  recommendationEyebrow: document.querySelector("#recommendationEyebrow"),
+  boAcquisitionControls: document.querySelector("#boAcquisitionControls"),
+  baxAcquisitionLabel: document.querySelector("#baxAcquisitionLabel"),
 };
 
 function renderInputs() {
@@ -62,11 +86,126 @@ function renderInputs() {
   updateGridSummary();
 }
 
+function syncBaxConfigWithOutputs() {
+  const names = state.outputs.map((output) => output.name.trim()).filter(Boolean);
+  if (!names.includes(state.baxConfig.maximizeOutput)) {
+    state.baxConfig.maximizeOutput = names[0] || "";
+  }
+  if (!names.includes(state.baxConfig.binOutput) || state.baxConfig.binOutput === state.baxConfig.maximizeOutput) {
+    state.baxConfig.binOutput = names.find((name) => name !== state.baxConfig.maximizeOutput) || "";
+  }
+
+  const previousBounds = new Map(state.baxConfig.bounds.map((bound) => [bound.output, bound]));
+  state.baxConfig.bounds = names.map((name) => previousBounds.get(name) || { output: name, min: "", max: "" });
+}
+
+function outputOptions(selected) {
+  const names = state.outputs.map((output) => output.name.trim()).filter(Boolean);
+  if (!names.length) return '<option value="">Add output variables first</option>';
+  return names
+    .map((name) => `<option value="${escapeHtml(name)}" ${name === selected ? "selected" : ""}>${escapeHtml(name)}</option>`)
+    .join("");
+}
+
+function renderBaxParameters() {
+  syncBaxConfigWithOutputs();
+  els.baxAlgorithm.value = state.baxConfig.algorithm;
+
+  if (state.baxConfig.algorithm === BAX_ALGORITHMS.LIBRARY) {
+    els.baxParameters.innerHTML = `
+      <p class="parameter-label">Required output ranges</p>
+      <div class="table-wrap">
+        <table class="parameter-table">
+          <thead><tr><th>Output</th><th>Lower bound</th><th>Upper bound</th></tr></thead>
+          <tbody>
+            ${
+              state.baxConfig.bounds.length
+                ? state.baxConfig.bounds
+                    .map(
+                      (bound, index) => `
+                        <tr>
+                          <td><strong>${escapeHtml(bound.output)}</strong></td>
+                          <td><input data-bax-bound-index="${index}" data-bax-bound-field="min" type="number" step="any" value="${escapeHtml(bound.min)}" aria-label="${escapeHtml(bound.output)} lower bound" /></td>
+                          <td><input data-bax-bound-index="${index}" data-bax-bound-field="max" type="number" step="any" value="${escapeHtml(bound.max)}" aria-label="${escapeHtml(bound.output)} upper bound" /></td>
+                        </tr>
+                      `,
+                    )
+                    .join("")
+                : '<tr><td colspan="3" class="empty-row">Add output variables to define the library region.</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+    `;
+    return;
+  }
+
+  els.baxParameters.innerHTML = `
+    <div class="parameter-grid">
+      <div class="field-group">
+        <label for="baxMaximizeOutput">Output to maximize</label>
+        <select id="baxMaximizeOutput" data-bax-field="maximizeOutput">${outputOptions(state.baxConfig.maximizeOutput)}</select>
+      </div>
+      <div class="field-group">
+        <label for="baxBinOutput">Output used for bins</label>
+        <select id="baxBinOutput" data-bax-field="binOutput">${outputOptions(state.baxConfig.binOutput)}</select>
+      </div>
+      <div class="field-group">
+        <label for="baxPointsPerBin">Points per bin</label>
+        <input id="baxPointsPerBin" data-bax-field="pointsPerBin" type="number" min="1" step="1" value="${escapeHtml(state.baxConfig.pointsPerBin)}" />
+      </div>
+      <div class="field-group">
+        <label for="baxEpsilon">Bin tolerance</label>
+        <input id="baxEpsilon" data-bax-field="epsilon" type="number" min="0" step="any" value="${escapeHtml(state.baxConfig.epsilon)}" />
+      </div>
+    </div>
+    <div class="bin-heading">
+      <p class="parameter-label">Bins for ${escapeHtml(state.baxConfig.binOutput || "the binning output")}</p>
+      <button id="addBaxBin" class="compact-action" type="button">Add bin</button>
+    </div>
+    <div class="table-wrap">
+      <table class="parameter-table">
+        <thead><tr><th>Lower bound</th><th>Upper bound</th><th></th></tr></thead>
+        <tbody>
+          ${state.baxConfig.bins
+            .map(
+              (bin, index) => `
+                <tr>
+                  <td><input data-bax-bin-index="${index}" data-bax-bin-field="min" type="number" step="any" value="${escapeHtml(bin.min)}" aria-label="Bin ${index + 1} lower bound" /></td>
+                  <td><input data-bax-bin-index="${index}" data-bax-bin-field="max" type="number" step="any" value="${escapeHtml(bin.max)}" aria-label="Bin ${index + 1} upper bound" /></td>
+                  <td><button class="remove-button" data-remove-bax-bin="${index}" type="button" title="Remove bin" aria-label="Remove bin">&times;</button></td>
+                </tr>
+              `,
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMethod() {
+  els.methodInputs.forEach((input) => {
+    input.checked = input.value === state.method;
+  });
+  const isBax = state.method === "bax";
+  els.baxSettings.hidden = !isBax;
+  els.boAcquisitionControls.hidden = isBax;
+  els.baxAcquisitionLabel.hidden = !isBax;
+  els.recommendationEyebrow.textContent = isBax ? "Bayesian algorithm execution" : "Bayesian optimization";
+  els.frontMetricLabel.textContent = isBax ? "measured target" : "Pareto front";
+  renderBaxParameters();
+}
+
 function renderOutputs() {
+  const isBax = state.method === "bax";
+  els.outputHeader.innerHTML = isBax
+    ? "<th>Name</th><th></th>"
+    : "<th>Name</th><th>Goal</th><th>Target</th><th></th>";
   if (!state.outputs.length) {
     els.outputRows.innerHTML = `
       <tr>
-        <td colspan="4" class="empty-row">Add output objectives such as yield, selectivity, median, cost, or conversion.</td>
+        <td colspan="${isBax ? 2 : 4}" class="empty-row">Add output variables such as yield, selectivity, median, cost, or conversion.</td>
       </tr>
     `;
   } else {
@@ -75,20 +214,25 @@ function renderOutputs() {
         (output, index) => `
         <tr>
           <td><input data-kind="output" data-index="${index}" data-field="name" value="${escapeHtml(output.name)}" aria-label="Output name" /></td>
-          <td>
-            <select data-kind="output" data-index="${index}" data-field="goal" aria-label="Goal">
-              <option value="maximize" ${output.goal === "maximize" ? "selected" : ""}>Maximize</option>
-              <option value="minimize" ${output.goal === "minimize" ? "selected" : ""}>Minimize</option>
-              <option value="target" ${output.goal === "target" ? "selected" : ""}>Target</option>
-            </select>
-          </td>
-          <td><input data-kind="output" data-index="${index}" data-field="target" type="number" step="any" value="${escapeHtml(output.target)}" ${output.goal === "target" ? "" : "disabled"} placeholder="${output.goal === "target" ? "Target value" : "Only for Target"}" aria-label="Target value" /></td>
+          ${
+            isBax
+              ? ""
+              : `<td>
+                  <select data-kind="output" data-index="${index}" data-field="goal" aria-label="Goal">
+                    <option value="maximize" ${output.goal === "maximize" ? "selected" : ""}>Maximize</option>
+                    <option value="minimize" ${output.goal === "minimize" ? "selected" : ""}>Minimize</option>
+                    <option value="target" ${output.goal === "target" ? "selected" : ""}>Target</option>
+                  </select>
+                </td>
+                <td><input data-kind="output" data-index="${index}" data-field="target" type="number" step="any" value="${escapeHtml(output.target)}" ${output.goal === "target" ? "" : "disabled"} placeholder="${output.goal === "target" ? "Target value" : "Only for Target"}" aria-label="Target value" /></td>`
+          }
           <td><button class="remove-button" data-remove-output="${index}" type="button" title="Remove output" aria-label="Remove output">&times;</button></td>
         </tr>
       `,
       )
       .join("");
   }
+  renderBaxParameters();
 }
 
 function updateGridSummary() {
@@ -104,6 +248,24 @@ function updateGridSummary() {
 
 function updateStateFromControl(control) {
   if (!control || !control.dataset) return;
+  if (control.dataset.baxField) {
+    const field = control.dataset.baxField;
+    state.baxConfig[field] = ["maximizeOutput", "binOutput"].includes(field) ? control.value : parseNumber(control.value);
+    resetResults();
+    return;
+  }
+  if (control.dataset.baxBinIndex !== undefined) {
+    const bin = state.baxConfig.bins[Number(control.dataset.baxBinIndex)];
+    if (bin) bin[control.dataset.baxBinField] = control.value === "" ? "" : parseNumber(control.value);
+    resetResults();
+    return;
+  }
+  if (control.dataset.baxBoundIndex !== undefined) {
+    const bound = state.baxConfig.bounds[Number(control.dataset.baxBoundIndex)];
+    if (bound) bound[control.dataset.baxBoundField] = control.value === "" ? "" : parseNumber(control.value);
+    resetResults();
+    return;
+  }
   const { kind, index, field } = control.dataset;
   if (!kind || index === undefined || !field) return;
   const collection = kind === "input" ? state.inputs : state.outputs;
@@ -121,6 +283,7 @@ function updateStateFromControl(control) {
   if (field === "goal" && target.goal !== "target") target.target = "";
   if (kind === "output" && field === "goal") renderOutputs();
   updateGridSummary();
+  resetResults();
 }
 
 function resetResults() {
@@ -134,6 +297,10 @@ function resetResults() {
   els.candidateHead.innerHTML = "";
   els.candidateRows.innerHTML = "";
   els.downloadResults.disabled = true;
+  els.frontCount.textContent = "0";
+  els.baxAcquisitionLabel.textContent = "MeanBAX";
+  const context = els.paretoCanvas.getContext("2d");
+  if (context) context.clearRect(0, 0, els.paretoCanvas.width, els.paretoCanvas.height);
 }
 
 function setStatus(message, isError = false) {
@@ -174,6 +341,21 @@ async function loadCsvFile(file) {
   const parsed = parseCsv(text);
   const loadedInputs = parsed.metadata?.inputs || [];
   const loadedOutputs = parsed.metadata?.outputs || [];
+  if (parsed.metadata?.method) state.method = parsed.metadata.method;
+  if (parsed.metadata?.bax) {
+    const loadedBax = parsed.metadata.bax;
+    const defaults = defaultBaxConfig();
+    state.baxConfig = {
+      ...defaults,
+      algorithm: loadedBax.algorithm || defaults.algorithm,
+      maximizeOutput: loadedBax.maximizeOutput || "",
+      binOutput: loadedBax.binOutput || "",
+      bins: loadedBax.bins.length ? loadedBax.bins : defaults.bins,
+      pointsPerBin: loadedBax.pointsPerBin === "" ? defaults.pointsPerBin : loadedBax.pointsPerBin,
+      epsilon: loadedBax.epsilon === "" ? defaults.epsilon : loadedBax.epsilon,
+      bounds: loadedBax.bounds,
+    };
+  }
   if (loadedInputs.length) {
     state.inputs = loadedInputs;
     renderInputs();
@@ -182,31 +364,36 @@ async function loadCsvFile(file) {
     state.outputs = loadedOutputs;
     renderOutputs();
   }
+  renderMethod();
   state.csvHeaders = parsed.headers;
   state.csvRows = parsed.data;
   els.fileName.textContent = file.name;
   resetResults();
   renderCsvPreview();
-  const setupText = loadedInputs.length || loadedOutputs.length ? " and setup metadata" : "";
+  const setupText = loadedInputs.length || loadedOutputs.length || parsed.metadata?.method ? " and setup metadata" : "";
   setStatus(`Loaded ${parsed.data.length.toLocaleString()} CSV rows${setupText}.`);
 }
 
 function runOptimizer() {
   try {
-    state.latestResult = recommendNextExperiment({
+    const problem = {
       inputs: state.inputs,
       outputs: state.outputs,
       csvRows: state.csvRows,
       csvHeaders: state.csvHeaders,
-      beta: state.beta,
-    });
+    };
+    state.latestResult =
+      state.method === "bax"
+        ? recommendNextBaxExperiment({ ...problem, baxConfig: state.baxConfig })
+        : recommendNextExperiment({ ...problem, beta: state.beta });
   } catch (error) {
     setStatus(error.message, true);
     return;
   }
 
   renderResults();
-  setStatus(`Recommended 1 next run from ${state.latestResult.candidates.length.toLocaleString()} ranked grid points.`);
+  const methodName = state.method === "bax" ? "BAX" : "BO";
+  setStatus(`${methodName} recommended the next run from the unmeasured grid points.`);
 }
 
 function renderResults() {
@@ -215,6 +402,7 @@ function renderResults() {
   els.frontCount.textContent = result.measuredFront.length.toLocaleString();
   els.measuredCount.textContent = result.measured.length.toLocaleString();
   els.downloadResults.disabled = false;
+  if (state.method === "bax") els.baxAcquisitionLabel.textContent = result.strategy;
 
   const inputRows = state.inputs
     .map(
@@ -247,7 +435,11 @@ function renderResults() {
     <div class="run-values">${inputRows}</div>
     <p class="eyebrow prediction-heading">Predicted outputs</p>
     <div class="predictions">${predictionRows}</div>
-    <p class="model-note">Score ${fmt(result.best.acquisition, 3)}. The ranking uses a Gaussian-process surrogate per output with a UCB exploration bonus.</p>
+    <p class="model-note">${
+      state.method === "bax"
+        ? `Score ${fmt(result.best.acquisition, 3)}. ${escapeHtml(result.strategy)} selected the most uncertain point aligned with the ${state.baxConfig.algorithm === BAX_ALGORITHMS.MAX_IN_BIN ? "Max-in-Bin" : "bounded-library"} target set.`
+        : `Score ${fmt(result.best.acquisition, 3)}. The ranking uses a Gaussian-process surrogate per output with a UCB exploration bonus.`
+    }</p>
   `;
 
   renderCandidateTable(result.candidates);
@@ -307,6 +499,8 @@ function drawParetoChart(result) {
     allX.push(item.predictions[ix].mean);
     allY.push(item.predictions[iy].mean);
   });
+  allX.push(result.best.predictions[ix].mean);
+  allY.push(result.best.predictions[iy].mean);
   const minX = Math.min(...allX);
   const maxX = Math.max(...allX);
   const minY = Math.min(...allY);
@@ -383,12 +577,20 @@ function drawParetoChart(result) {
   result.predictedFront.forEach((item) => plotPoint(item.predictions[ix].mean, item.predictions[iy].mean, 4, "#d59c26", "#ffffff"));
   plotPoint(result.best.predictions[ix].mean, result.best.predictions[iy].mean, 7, "#b85050", "#ffffff");
 
-  const legend = [
-    ["Measured", "#8f9ba7"],
-    ["Measured front", "#24845d"],
-    ["Predicted front", "#d59c26"],
-    ["Next", "#b85050"],
-  ];
+  const legend =
+    state.method === "bax"
+      ? [
+          ["Measured", "#8f9ba7"],
+          ["Measured target", "#24845d"],
+          ["Predicted target", "#d59c26"],
+          ["Next", "#b85050"],
+        ]
+      : [
+          ["Measured", "#8f9ba7"],
+          ["Measured front", "#24845d"],
+          ["Predicted front", "#d59c26"],
+          ["Next", "#b85050"],
+        ];
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   legend.forEach(([label, color], index) => {
@@ -425,14 +627,22 @@ function downloadLatestResults() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "bo_next_experiments.csv";
+  link.download = `${state.method}_next_experiments.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
 
 function wireEvents() {
   document.addEventListener("input", (event) => updateStateFromControl(event.target));
-  document.addEventListener("change", (event) => updateStateFromControl(event.target));
+  document.addEventListener("change", (event) => {
+    updateStateFromControl(event.target);
+    if (event.target.dataset?.kind === "output" && event.target.dataset.field === "name") {
+      renderBaxParameters();
+    }
+    if (["maximizeOutput", "binOutput"].includes(event.target.dataset?.baxField)) {
+      renderBaxParameters();
+    }
+  });
 
   document.addEventListener("click", (event) => {
     const clicked = event.target.closest("button");
@@ -448,6 +658,21 @@ function wireEvents() {
     if (clicked.id === "addOutput") {
       state.outputs.push({ name: "", goal: "maximize", target: "" });
       renderOutputs();
+      resetResults();
+      return;
+    }
+
+    if (clicked.id === "addBaxBin") {
+      state.baxConfig.bins.push({ min: "", max: "" });
+      renderBaxParameters();
+      resetResults();
+      return;
+    }
+
+    const baxBinIndex = clicked.dataset.removeBaxBin;
+    if (baxBinIndex !== undefined) {
+      state.baxConfig.bins.splice(Number(baxBinIndex), 1);
+      renderBaxParameters();
       resetResults();
       return;
     }
@@ -485,6 +710,22 @@ function wireEvents() {
 
   els.runOptimizer.addEventListener("click", runOptimizer);
   els.downloadResults.addEventListener("click", downloadLatestResults);
+
+  els.methodInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      if (!input.checked) return;
+      state.method = input.value;
+      renderMethod();
+      renderOutputs();
+      resetResults();
+    });
+  });
+
+  els.baxAlgorithm.addEventListener("change", () => {
+    state.baxConfig.algorithm = els.baxAlgorithm.value;
+    renderBaxParameters();
+    resetResults();
+  });
 
   els.advancedMode.addEventListener("change", () => {
     els.betaControl.hidden = !els.advancedMode.checked;
@@ -529,6 +770,7 @@ function wireEvents() {
 }
 
 renderInputs();
+renderMethod();
 renderOutputs();
 renderCsvPreview();
 wireEvents();
