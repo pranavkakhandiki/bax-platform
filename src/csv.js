@@ -93,6 +93,11 @@ function parseMetadataRow(row, metadata) {
     return true;
   }
 
+  if (kind === "bax_acquisition") {
+    metadata.bax.acquisition = cleanCell(row[1]).toLowerCase();
+    return true;
+  }
+
   if (kind === "bax_maximize") {
     metadata.bax.maximizeOutput = cleanCell(row[1]);
     return true;
@@ -138,6 +143,7 @@ export function parseCsv(text) {
     outputs: [],
     bax: {
       algorithm: "",
+      acquisition: "",
       maximizeOutput: "",
       binOutput: "",
       bins: [],

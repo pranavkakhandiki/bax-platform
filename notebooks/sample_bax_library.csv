@@ -1,5 +1,6 @@
 # method,bax
 # bax_algorithm,library
+# bax_acquisition,infobax
 # bax_bound,yield,50,70
 # bax_bound,median,9,12
 # input,time,1,12,1

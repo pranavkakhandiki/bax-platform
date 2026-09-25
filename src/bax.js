@@ -1,6 +1,8 @@
 import {
   MAX_TRAINING_ROWS,
   aggregateRows,
+  choleskyDecompose,
+  choleskySolveFromFactor,
   computeStats,
   fitSurrogate,
   keyForPoint,
@@ -10,12 +12,21 @@ import {
   validateProblem,
 } from "./optimizer.js";
 
-// Browser port of TopKBinAlgorithm, MultibandIntersection, and MeanBAX from multibax-sklearn.
+// Browser port of the subset algorithms and BAX acquisition semantics from multibax-sklearn.
 
 export const BAX_ALGORITHMS = {
   MAX_IN_BIN: "max_in_bin",
   LIBRARY: "library",
 };
+
+export const BAX_ACQUISITIONS = {
+  MEAN: "meanbax",
+  INFO: "infobax",
+  SWITCH: "switchbax",
+};
+
+export const INFOBAX_POSTERIOR_SAMPLES = 10;
+export const MAX_INFOBAX_GRID_POINTS = 500;
 
 function meanNormalizedUncertainty(predictions, stats) {
   return (
@@ -80,6 +91,10 @@ export function identifyBaxTarget(values, outputs, config) {
 
 export function validateBaxConfiguration(outputs, config) {
   const errors = [];
+  const acquisition = config.acquisition || BAX_ACQUISITIONS.MEAN;
+  if (!Object.values(BAX_ACQUISITIONS).includes(acquisition)) {
+    errors.push("Choose a supported BAX acquisition strategy.");
+  }
   if (config.algorithm === BAX_ALGORITHMS.MAX_IN_BIN) {
     if (outputs.length < 2) errors.push("Max-in-Bin needs at least two output variables.");
     if (!outputs.some((output) => output.name === config.maximizeOutput)) {
@@ -119,6 +134,85 @@ export function validateBaxConfiguration(outputs, config) {
     errors.push("Choose a supported BAX algorithm.");
   }
   return errors;
+}
+
+function seededRandom(seed = 1729) {
+  let value = seed >>> 0;
+  return () => {
+    value += 0x6d2b79f5;
+    let mixed = value;
+    mixed = Math.imul(mixed ^ (mixed >>> 15), mixed | 1);
+    mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61);
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function normalSample(random) {
+  const first = Math.max(random(), 1e-12);
+  const second = random();
+  return Math.sqrt(-2 * Math.log(first)) * Math.cos(2 * Math.PI * second);
+}
+
+function drawPosteriorSamples(posterior, count, random) {
+  const largestVariance = Math.max(...posterior.covariance.map((row, index) => row[index]), 1e-9);
+  const covariance = posterior.covariance.map((row, rowIndex) =>
+    row.map((value, columnIndex) => value + (rowIndex === columnIndex ? largestVariance * 1e-9 : 0)),
+  );
+  const lower = choleskyDecompose(covariance);
+
+  return Array.from({ length: count }, () => {
+    const standardNormal = posterior.mean.map(() => normalSample(random));
+    return posterior.mean.map(
+      (mean, rowIndex) =>
+        mean + lower[rowIndex].slice(0, rowIndex + 1).reduce((sum, value, columnIndex) => sum + value * standardNormal[columnIndex], 0),
+    );
+  });
+}
+
+function informationGainScores(models, normalizedGrid, outputs, baxConfig) {
+  if (normalizedGrid.length > MAX_INFOBAX_GRID_POINTS) {
+    throw new Error(
+      `InfoBAX currently supports grids up to ${MAX_INFOBAX_GRID_POINTS.toLocaleString()} points in the browser. Reduce the grid or use MeanBAX.`,
+    );
+  }
+
+  const posteriors = models.map((model) => model.posterior(normalizedGrid));
+  const random = seededRandom();
+  const samples = posteriors.map((posterior) => drawPosteriorSamples(posterior, INFOBAX_POSTERIOR_SAMPLES, random));
+  const scores = Array(normalizedGrid.length).fill(0);
+
+  for (let sampleIndex = 0; sampleIndex < INFOBAX_POSTERIOR_SAMPLES; sampleIndex += 1) {
+    const sampledValues = normalizedGrid.map((_, gridIndex) =>
+      outputs.map((__, outputIndex) => samples[outputIndex][sampleIndex][gridIndex]),
+    );
+    const targetIndices = identifyBaxTarget(sampledValues, outputs, baxConfig);
+    if (!targetIndices.length) continue;
+
+    posteriors.forEach((posterior) => {
+      const targetCovariance = targetIndices.map((rowIndex) =>
+        targetIndices.map((columnIndex) => posterior.covariance[rowIndex][columnIndex]),
+      );
+      const largestTargetVariance = Math.max(
+        ...targetCovariance.map((row, index) => row[index]),
+        1e-9,
+      );
+      targetCovariance.forEach((row, index) => {
+        row[index] += largestTargetVariance * 1e-8;
+      });
+      const lower = choleskyDecompose(targetCovariance);
+
+      for (let gridIndex = 0; gridIndex < normalizedGrid.length; gridIndex += 1) {
+        const covarianceWithTarget = targetIndices.map((targetIndex) => posterior.covariance[gridIndex][targetIndex]);
+        const solved = choleskySolveFromFactor(lower, covarianceWithTarget);
+        const reduction = covarianceWithTarget.reduce((sum, value, index) => sum + value * solved[index], 0);
+        const baseVariance = Math.max(posterior.covariance[gridIndex][gridIndex], 1e-12);
+        const conditionalVariance = Math.max(baseVariance - reduction, baseVariance * 1e-9);
+        scores[gridIndex] += 0.5 * Math.log(baseVariance / conditionalVariance) / outputs.length / INFOBAX_POSTERIOR_SAMPLES;
+      }
+    });
+  }
+
+  return scores;
 }
 
 export function recommendNextBaxExperiment({ inputs, outputs, baxConfig, csvRows, csvHeaders }) {
@@ -163,12 +257,33 @@ export function recommendNextBaxExperiment({ inputs, outputs, baxConfig, csvRows
   );
   const predictedTargetSet = new Set(predictedTargetIndices);
   const unmeasuredTargetExists = predictedTargetIndices.some((index) => !gridItems[index].measured);
-  const strategy = unmeasuredTargetExists ? "MeanBAX" : "uncertainty fallback";
+  gridItems.forEach((item, index) => {
+    item.target = predictedTargetSet.has(index);
+  });
+
+  const acquisition = baxConfig.acquisition || BAX_ACQUISITIONS.MEAN;
+  const useInfoBax = acquisition === BAX_ACQUISITIONS.INFO || (acquisition === BAX_ACQUISITIONS.SWITCH && !unmeasuredTargetExists);
+  let acquisitionScores;
+  let strategy;
+
+  if (useInfoBax) {
+    acquisitionScores = informationGainScores(models, normalizedGrid, outputs, baxConfig);
+    strategy = acquisition === BAX_ACQUISITIONS.SWITCH ? "SwitchBAX → InfoBAX" : "InfoBAX";
+  } else {
+    acquisitionScores = gridItems.map((item, index) =>
+      unmeasuredTargetExists ? (predictedTargetSet.has(index) ? item.uncertainty : 0) : item.uncertainty,
+    );
+    if (acquisition === BAX_ACQUISITIONS.SWITCH) {
+      strategy = "SwitchBAX → MeanBAX";
+    } else {
+      strategy = unmeasuredTargetExists ? "MeanBAX" : "MeanBAX uncertainty fallback";
+    }
+  }
 
   const candidates = gridItems
     .map((item, index) => ({
       ...item,
-      acquisition: unmeasuredTargetExists ? (predictedTargetSet.has(index) ? item.uncertainty : 0) : item.uncertainty,
+      acquisition: acquisitionScores[index],
     }))
     .filter((item) => !item.measured)
     .sort((a, b) => b.acquisition - a.acquisition);
@@ -184,12 +299,14 @@ export function recommendNextBaxExperiment({ inputs, outputs, baxConfig, csvRows
   return {
     method: "bax",
     algorithm: baxConfig.algorithm,
+    acquisition,
     strategy,
     best: candidates[0],
     candidates: candidates.slice(0, 20),
     measured,
     measuredFront: measuredTargetIndices.map((index) => measured[index]),
     predictedFront: predictedTargetIndices.map((index) => gridItems[index]).slice(0, 200),
+    gridItems,
     stats,
   };
 }

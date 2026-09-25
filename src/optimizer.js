@@ -124,7 +124,7 @@ export function summarizeMeasurements(csvRows, inputs, outputs) {
   };
 }
 
-function choleskySolve(matrix, vector) {
+export function choleskyDecompose(matrix) {
   const n = matrix.length;
   const lower = Array.from({ length: n }, () => Array(n).fill(0));
 
@@ -140,6 +140,11 @@ function choleskySolve(matrix, vector) {
     }
   }
 
+  return lower;
+}
+
+export function choleskySolveFromFactor(lower, vector) {
+  const n = lower.length;
   const y = Array(n).fill(0);
   for (let i = 0; i < n; i += 1) {
     let sum = vector[i];
@@ -198,17 +203,41 @@ export function fitSurrogate(xTrain, yTrain, outputIndex) {
 
   const kernel = (a, b) => Math.exp(-0.5 * squaredDistance(a, b) / (lengthScale * lengthScale));
   const matrix = xTrain.map((a, i) => xTrain.map((b, j) => kernel(a, b) + (i === j ? noise * noise + 1e-8 : 0)));
-  const alpha = choleskySolve(matrix, centered);
+  const lower = choleskyDecompose(matrix);
+  const alpha = choleskySolveFromFactor(lower, centered);
+
+  const predictNormalized = (point) => {
+    const k = xTrain.map((trainPoint) => kernel(point, trainPoint));
+    const normalizedMean = k.reduce((sum, value, index) => sum + value * alpha[index], 0);
+    const inverseProduct = choleskySolveFromFactor(lower, k);
+    const normalizedVariance = Math.max(1 - k.reduce((sum, value, index) => sum + value * inverseProduct[index], 0), 1e-6);
+    return { k, inverseProduct, normalizedMean, normalizedVariance };
+  };
 
   return {
     predict(point) {
-      const k = xTrain.map((trainPoint) => kernel(point, trainPoint));
-      const normalizedMean = k.reduce((sum, value, index) => sum + value * alpha[index], 0);
-      const v = choleskySolve(matrix, k);
-      const varianceEstimate = Math.max(1 - k.reduce((sum, value, index) => sum + value * v[index], 0), 1e-6);
+      const prediction = predictNormalized(point);
       return {
-        mean: mean + normalizedMean * std,
-        std: Math.sqrt(varianceEstimate) * std,
+        mean: mean + prediction.normalizedMean * std,
+        std: Math.sqrt(prediction.normalizedVariance) * std,
+      };
+    },
+    posterior(points) {
+      const normalized = points.map(predictNormalized);
+      const covariance = points.map((point, rowIndex) =>
+        points.map((otherPoint, columnIndex) => {
+          const priorCovariance = kernel(point, otherPoint);
+          const reduction = normalized[rowIndex].k.reduce(
+            (sum, value, index) => sum + value * normalized[columnIndex].inverseProduct[index],
+            0,
+          );
+          const value = (priorCovariance - reduction) * std * std;
+          return rowIndex === columnIndex ? Math.max(value, std * std * 1e-6) : value;
+        }),
+      );
+      return {
+        mean: normalized.map((item) => mean + item.normalizedMean * std),
+        covariance,
       };
     },
   };

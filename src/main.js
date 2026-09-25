@@ -1,11 +1,12 @@
 import { parseCsv } from "./csv.js";
-import { BAX_ALGORITHMS, recommendNextBaxExperiment } from "./bax.js";
+import { BAX_ACQUISITIONS, BAX_ALGORITHMS, recommendNextBaxExperiment } from "./bax.js";
 import { DEFAULT_BETA, getGridSize, gridValues, recommendNextExperiment, summarizeMeasurements } from "./optimizer.js";
 import { escapeHtml, fmt, parseNumber } from "./utils.js";
 
 function defaultBaxConfig() {
   return {
     algorithm: BAX_ALGORITHMS.MAX_IN_BIN,
+    acquisition: BAX_ACQUISITIONS.SWITCH,
     maximizeOutput: "",
     binOutput: "",
     bins: [{ min: "", max: "" }],
@@ -30,6 +31,7 @@ const els = {
   methodInputs: document.querySelectorAll('input[name="method"]'),
   baxSettings: document.querySelector("#baxSettings"),
   baxAlgorithm: document.querySelector("#baxAlgorithm"),
+  baxAcquisition: document.querySelector("#baxAcquisition"),
   baxParameters: document.querySelector("#baxParameters"),
   inputRows: document.querySelector("#inputRows"),
   outputHeader: document.querySelector("#outputHeader"),
@@ -47,6 +49,10 @@ const els = {
   runOptimizer: document.querySelector("#runOptimizer"),
   nextRun: document.querySelector("#nextRun"),
   paretoCanvas: document.querySelector("#paretoCanvas"),
+  gpCanvas: document.querySelector("#gpCanvas"),
+  baxGpPanel: document.querySelector("#baxGpPanel"),
+  observedChartTitle: document.querySelector("#observedChartTitle"),
+  observedChartNote: document.querySelector("#observedChartNote"),
   candidateHead: document.querySelector("#candidateHead"),
   candidateRows: document.querySelector("#candidateRows"),
   downloadResults: document.querySelector("#downloadResults"),
@@ -110,6 +116,7 @@ function outputOptions(selected) {
 function renderBaxParameters() {
   syncBaxConfigWithOutputs();
   els.baxAlgorithm.value = state.baxConfig.algorithm;
+  els.baxAcquisition.value = state.baxConfig.acquisition;
 
   if (state.baxConfig.algorithm === BAX_ALGORITHMS.LIBRARY) {
     els.baxParameters.innerHTML = `
@@ -194,7 +201,15 @@ function renderMethod() {
   els.baxAcquisitionLabel.hidden = !isBax;
   els.recommendationEyebrow.textContent = isBax ? "Bayesian algorithm execution" : "Bayesian optimization";
   els.frontMetricLabel.textContent = isBax ? "measured target" : "Pareto front";
+  els.observedChartTitle.textContent = isBax ? "Measured Output Space" : "Measured and Predicted Fronts";
+  els.observedChartNote.textContent = isBax
+    ? "Measured outputs, measured target hits, and the next predicted point."
+    : "Measured outputs, Pareto fronts, and the next predicted point.";
+  els.baxGpPanel.hidden = !isBax || !state.latestResult;
   renderBaxParameters();
+  if (!state.latestResult && isBax) {
+    els.baxAcquisitionLabel.textContent = els.baxAcquisition.selectedOptions[0]?.textContent || "BAX";
+  }
 }
 
 function renderOutputs() {
@@ -298,9 +313,12 @@ function resetResults() {
   els.candidateRows.innerHTML = "";
   els.downloadResults.disabled = true;
   els.frontCount.textContent = "0";
-  els.baxAcquisitionLabel.textContent = "MeanBAX";
+  els.baxAcquisitionLabel.textContent = els.baxAcquisition.selectedOptions[0]?.textContent || "BAX";
   const context = els.paretoCanvas.getContext("2d");
   if (context) context.clearRect(0, 0, els.paretoCanvas.width, els.paretoCanvas.height);
+  const gpContext = els.gpCanvas.getContext("2d");
+  if (gpContext) gpContext.clearRect(0, 0, els.gpCanvas.width, els.gpCanvas.height);
+  els.baxGpPanel.hidden = true;
 }
 
 function setStatus(message, isError = false) {
@@ -348,6 +366,7 @@ async function loadCsvFile(file) {
     state.baxConfig = {
       ...defaults,
       algorithm: loadedBax.algorithm || defaults.algorithm,
+      acquisition: loadedBax.acquisition || defaults.acquisition,
       maximizeOutput: loadedBax.maximizeOutput || "",
       binOutput: loadedBax.binOutput || "",
       bins: loadedBax.bins.length ? loadedBax.bins : defaults.bins,
@@ -403,6 +422,13 @@ function renderResults() {
   els.measuredCount.textContent = result.measured.length.toLocaleString();
   els.downloadResults.disabled = false;
   if (state.method === "bax") els.baxAcquisitionLabel.textContent = result.strategy;
+  els.baxGpPanel.hidden = state.method !== "bax";
+  if (state.method === "bax") {
+    els.observedChartNote.textContent =
+      state.baxConfig.algorithm === BAX_ALGORITHMS.MAX_IN_BIN
+        ? "Shaded bands are configured bins; green points are measured bin winners."
+        : "The shaded box is the requested library region; green points are measured hits.";
+  }
 
   const inputRows = state.inputs
     .map(
@@ -427,6 +453,12 @@ function renderResults() {
     })
     .join("");
 
+  const baxExplanation = result.strategy.includes("InfoBAX")
+    ? `${escapeHtml(result.strategy)} selected the point with the greatest expected information about the algorithm-defined target set.`
+    : result.strategy.includes("fallback")
+      ? `${escapeHtml(result.strategy)} selected the most uncertain unmeasured grid point because the predicted target set is empty or exhausted.`
+      : `${escapeHtml(result.strategy)} selected the most uncertain unmeasured member of the predicted target set.`;
+
   els.nextRun.innerHTML = `
     <div class="run-title">
       <p class="eyebrow">Run this next</p>
@@ -437,13 +469,14 @@ function renderResults() {
     <div class="predictions">${predictionRows}</div>
     <p class="model-note">${
       state.method === "bax"
-        ? `Score ${fmt(result.best.acquisition, 3)}. ${escapeHtml(result.strategy)} selected the most uncertain point aligned with the ${state.baxConfig.algorithm === BAX_ALGORITHMS.MAX_IN_BIN ? "Max-in-Bin" : "bounded-library"} target set.`
+        ? `Score ${fmt(result.best.acquisition, 3)}. ${baxExplanation}`
         : `Score ${fmt(result.best.acquisition, 3)}. The ranking uses a Gaussian-process surrogate per output with a UCB exploration bonus.`
     }</p>
   `;
 
   renderCandidateTable(result.candidates);
   drawParetoChart(result);
+  if (state.method === "bax") drawGpChart(result);
 }
 
 function renderCandidateTable(candidates) {
@@ -467,6 +500,57 @@ function renderCandidateTable(candidates) {
       `,
     )
     .join("");
+}
+
+function baxRangesForOutput(outputName) {
+  if (state.baxConfig.algorithm === BAX_ALGORITHMS.LIBRARY) {
+    const bound = state.baxConfig.bounds.find((item) => item.output === outputName);
+    return bound ? [{ min: Number(bound.min), max: Number(bound.max) }] : [];
+  }
+  if (state.baxConfig.binOutput !== outputName) return [];
+  const epsilon = Number(state.baxConfig.epsilon) || 0;
+  return state.baxConfig.bins.map((bin) => ({ min: Number(bin.min) - epsilon, max: Number(bin.max) + epsilon }));
+}
+
+function addBaxGuideDomain(xValues, yValues, outputX, outputY) {
+  baxRangesForOutput(outputX.name).forEach((range) => xValues.push(range.min, range.max));
+  baxRangesForOutput(outputY.name).forEach((range) => yValues.push(range.min, range.max));
+}
+
+function drawBaxGuides(ctx, frame, outputX, outputY) {
+  if (state.method !== "bax") return;
+  const xRanges = baxRangesForOutput(outputX.name).filter((range) => Number.isFinite(range.min) && Number.isFinite(range.max));
+  const yRanges = baxRangesForOutput(outputY.name).filter((range) => Number.isFinite(range.min) && Number.isFinite(range.max));
+  const { pad, plotWidth, plotHeight, xScale, yScale } = frame;
+
+  ctx.save();
+  ctx.fillStyle = state.baxConfig.algorithm === BAX_ALGORITHMS.LIBRARY ? "rgba(36, 132, 93, 0.10)" : "rgba(29, 139, 168, 0.08)";
+  ctx.strokeStyle = state.baxConfig.algorithm === BAX_ALGORITHMS.LIBRARY ? "rgba(36, 132, 93, 0.55)" : "rgba(29, 139, 168, 0.45)";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([5, 4]);
+
+  if (state.baxConfig.algorithm === BAX_ALGORITHMS.LIBRARY && xRanges[0] && yRanges[0]) {
+    const left = xScale(xRanges[0].min);
+    const right = xScale(xRanges[0].max);
+    const top = yScale(yRanges[0].max);
+    const bottom = yScale(yRanges[0].min);
+    ctx.fillRect(left, top, right - left, bottom - top);
+    ctx.strokeRect(left, top, right - left, bottom - top);
+  } else {
+    xRanges.forEach((range) => {
+      const left = xScale(range.min);
+      const right = xScale(range.max);
+      ctx.fillRect(left, pad.top, right - left, plotHeight);
+      ctx.strokeRect(left, pad.top, right - left, plotHeight);
+    });
+    yRanges.forEach((range) => {
+      const top = yScale(range.max);
+      const bottom = yScale(range.min);
+      ctx.fillRect(pad.left, top, plotWidth, bottom - top);
+      ctx.strokeRect(pad.left, top, plotWidth, bottom - top);
+    });
+  }
+  ctx.restore();
 }
 
 function drawParetoChart(result) {
@@ -495,10 +579,14 @@ function drawParetoChart(result) {
 
   const allX = result.measured.map((item) => item.y[ix]);
   const allY = result.measured.map((item) => item.y[iy]);
-  result.predictedFront.forEach((item) => {
-    allX.push(item.predictions[ix].mean);
-    allY.push(item.predictions[iy].mean);
-  });
+  if (state.method !== "bax") {
+    result.predictedFront.forEach((item) => {
+      allX.push(item.predictions[ix].mean);
+      allY.push(item.predictions[iy].mean);
+    });
+  } else {
+    addBaxGuideDomain(allX, allY, outputX, outputY);
+  }
   allX.push(result.best.predictions[ix].mean);
   allY.push(result.best.predictions[iy].mean);
   const minX = Math.min(...allX);
@@ -509,6 +597,7 @@ function drawParetoChart(result) {
   const spanY = Math.max(maxY - minY, 1e-6);
   const xScale = (value) => pad.left + ((value - minX) / spanX) * plotWidth;
   const yScale = (value) => pad.top + plotHeight - ((value - minY) / spanY) * plotHeight;
+  const frame = { pad, plotWidth, plotHeight, xScale, yScale };
 
   const formatTick = (value, span) => {
     const magnitude = Math.max(Math.abs(value), Math.abs(span));
@@ -560,6 +649,8 @@ function drawParetoChart(result) {
   ctx.fillText(outputY.name, 0, 0);
   ctx.restore();
 
+  drawBaxGuides(ctx, frame, outputX, outputY);
+
   const plotPoint = (x, y, radius, color, stroke) => {
     ctx.beginPath();
     ctx.arc(xScale(x), yScale(y), radius, 0, Math.PI * 2);
@@ -574,7 +665,9 @@ function drawParetoChart(result) {
 
   result.measured.forEach((item) => plotPoint(item.y[ix], item.y[iy], 4, "#8f9ba7"));
   result.measuredFront.forEach((item) => plotPoint(item.y[ix], item.y[iy], 6, "#24845d", "#ffffff"));
-  result.predictedFront.forEach((item) => plotPoint(item.predictions[ix].mean, item.predictions[iy].mean, 4, "#d59c26", "#ffffff"));
+  if (state.method !== "bax") {
+    result.predictedFront.forEach((item) => plotPoint(item.predictions[ix].mean, item.predictions[iy].mean, 4, "#d59c26", "#ffffff"));
+  }
   plotPoint(result.best.predictions[ix].mean, result.best.predictions[iy].mean, 7, "#b85050", "#ffffff");
 
   const legend =
@@ -582,7 +675,6 @@ function drawParetoChart(result) {
       ? [
           ["Measured", "#8f9ba7"],
           ["Measured target", "#24845d"],
-          ["Predicted target", "#d59c26"],
           ["Next", "#b85050"],
         ]
       : [
@@ -596,6 +688,140 @@ function drawParetoChart(result) {
   legend.forEach(([label, color], index) => {
     const x = pad.left + index * 122;
     const y = 18;
+    ctx.beginPath();
+    ctx.arc(x, y - 4, 5, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.fillStyle = "#4d5966";
+    ctx.fillText(label, x + 10, y);
+  });
+}
+
+function drawGpChart(result) {
+  const canvas = els.gpCanvas;
+  const ctx = canvas.getContext("2d");
+  if (!ctx || !result.gridItems?.length || !state.outputs.length) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.max(500, Math.floor(rect.width * ratio));
+  canvas.height = Math.max(360, Math.floor(rect.height * ratio));
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+  const width = canvas.width / ratio;
+  const height = canvas.height / ratio;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = "#fbfcfd";
+  ctx.fillRect(0, 0, width, height);
+
+  const pad = { left: 76, right: 24, top: 32, bottom: 64 };
+  const plotWidth = width - pad.left - pad.right;
+  const plotHeight = height - pad.top - pad.bottom;
+  const outputX = state.outputs[0];
+  const outputY = state.outputs[1] || state.outputs[0];
+  const ix = 0;
+  const iy = state.outputs[1] ? 1 : 0;
+  const xValues = result.gridItems.map((item) => item.predictions[ix].mean);
+  const yValues = result.gridItems.map((item) => item.predictions[iy].mean);
+  addBaxGuideDomain(xValues, yValues, outputX, outputY);
+
+  const minX = Math.min(...xValues);
+  const maxX = Math.max(...xValues);
+  const minY = Math.min(...yValues);
+  const maxY = Math.max(...yValues);
+  const spanX = Math.max(maxX - minX, 1e-6);
+  const spanY = Math.max(maxY - minY, 1e-6);
+  const xScale = (value) => pad.left + ((value - minX) / spanX) * plotWidth;
+  const yScale = (value) => pad.top + plotHeight - ((value - minY) / spanY) * plotHeight;
+  const frame = { pad, plotWidth, plotHeight, xScale, yScale };
+
+  ctx.strokeStyle = "#d8dee7";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i <= 4; i += 1) {
+    const x = pad.left + (plotWidth * i) / 4;
+    const y = pad.top + (plotHeight * i) / 4;
+    ctx.moveTo(x, pad.top);
+    ctx.lineTo(x, pad.top + plotHeight);
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + plotWidth, y);
+  }
+  ctx.stroke();
+
+  const formatTick = (value, span) => {
+    const magnitude = Math.max(Math.abs(value), Math.abs(span));
+    if (magnitude >= 1e6 || (magnitude > 0 && magnitude < 1e-3)) return value.toExponential(2);
+    const tickStep = Math.abs(span) / 4;
+    const digits = tickStep >= 1 ? 2 : Math.min(5, Math.max(2, Math.ceil(-Math.log10(tickStep)) + 1));
+    return fmt(value, digits);
+  };
+
+  ctx.fillStyle = "#65717f";
+  ctx.font = "12px Inter, system-ui, sans-serif";
+  for (let i = 0; i <= 4; i += 1) {
+    const x = pad.left + (plotWidth * i) / 4;
+    const y = pad.top + (plotHeight * i) / 4;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(formatTick(minX + (spanX * i) / 4, spanX), x, pad.top + plotHeight + 8);
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(formatTick(maxY - (spanY * i) / 4, spanY), pad.left - 10, y);
+  }
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillText(outputX.name, pad.left + plotWidth / 2, height - 8);
+  ctx.save();
+  ctx.translate(14, pad.top + plotHeight / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textBaseline = "top";
+  ctx.fillText(outputY.name, 0, 0);
+  ctx.restore();
+
+  drawBaxGuides(ctx, frame, outputX, outputY);
+
+  const uncertainties = result.gridItems.map((item) => item.uncertainty);
+  const minUncertainty = Math.min(...uncertainties);
+  const maxUncertainty = Math.max(...uncertainties);
+  const uncertaintySpan = Math.max(maxUncertainty - minUncertainty, 1e-9);
+  const uncertaintyColor = (value) => {
+    const amount = (value - minUncertainty) / uncertaintySpan;
+    const red = Math.round(178 + (29 - 178) * amount);
+    const green = Math.round(188 + (139 - 188) * amount);
+    const blue = Math.round(198 + (168 - 198) * amount);
+    return `rgb(${red}, ${green}, ${blue})`;
+  };
+
+  [...result.gridItems]
+    .sort((a, b) => a.uncertainty - b.uncertainty)
+    .forEach((item) => {
+      ctx.beginPath();
+      ctx.arc(xScale(item.predictions[ix].mean), yScale(item.predictions[iy].mean), 2.6, 0, Math.PI * 2);
+      ctx.fillStyle = uncertaintyColor(item.uncertainty);
+      ctx.globalAlpha = 0.72;
+      ctx.fill();
+    });
+  ctx.globalAlpha = 1;
+
+  ctx.beginPath();
+  ctx.arc(xScale(result.best.predictions[ix].mean), yScale(result.best.predictions[iy].mean), 7, 0, Math.PI * 2);
+  ctx.fillStyle = "#b85050";
+  ctx.fill();
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const legend = [
+    ["Lower uncertainty", uncertaintyColor(minUncertainty)],
+    ["Higher uncertainty", uncertaintyColor(maxUncertainty)],
+    ["Next", "#b85050"],
+  ];
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  legend.forEach(([label, color], index) => {
+    const x = pad.left + index * 150;
+    const y = 21;
     ctx.beginPath();
     ctx.arc(x, y - 4, 5, 0, Math.PI * 2);
     ctx.fillStyle = color;
@@ -727,6 +953,11 @@ function wireEvents() {
     resetResults();
   });
 
+  els.baxAcquisition.addEventListener("change", () => {
+    state.baxConfig.acquisition = els.baxAcquisition.value;
+    resetResults();
+  });
+
   els.advancedMode.addEventListener("change", () => {
     els.betaControl.hidden = !els.advancedMode.checked;
     state.beta = els.advancedMode.checked ? Number(els.betaSlider.value) : DEFAULT_BETA;
@@ -765,7 +996,10 @@ function wireEvents() {
     document.querySelectorAll(".band").forEach((section) => observer.observe(section));
   }
   window.addEventListener("resize", () => {
-    if (state.latestResult) drawParetoChart(state.latestResult);
+    if (state.latestResult) {
+      drawParetoChart(state.latestResult);
+      if (state.method === "bax") drawGpChart(state.latestResult);
+    }
   });
 }
 

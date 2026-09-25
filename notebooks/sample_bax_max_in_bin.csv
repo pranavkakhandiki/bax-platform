@@ -1,5 +1,6 @@
 # method,bax
 # bax_algorithm,max_in_bin
+# bax_acquisition,switchbax
 # bax_maximize,yield
 # bax_bin_output,median
 # bax_bin,8,10

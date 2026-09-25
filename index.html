@@ -56,12 +56,22 @@
           </div>
 
           <div id="baxSettings" class="bax-settings" hidden>
-            <div class="field-group algorithm-field">
-              <label for="baxAlgorithm">Algorithm</label>
-              <select id="baxAlgorithm">
-                <option value="max_in_bin">Max-in-Bin</option>
-                <option value="library">Bounded Library</option>
-              </select>
+            <div class="parameter-grid">
+              <div class="field-group">
+                <label for="baxAlgorithm">Target algorithm</label>
+                <select id="baxAlgorithm">
+                  <option value="max_in_bin">Max-in-Bin</option>
+                  <option value="library">Bounded Library</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="baxAcquisition">Acquisition strategy</label>
+                <select id="baxAcquisition">
+                  <option value="meanbax">MeanBAX</option>
+                  <option value="infobax">InfoBAX</option>
+                  <option value="switchbax">SwitchBAX</option>
+                </select>
+              </div>
             </div>
             <div id="baxParameters"></div>
           </div>
@@ -184,8 +194,20 @@
               </div>
             </div>
             <div class="chart-panel">
+              <div class="chart-heading">
+                <h3 id="observedChartTitle">Measured Output Space</h3>
+                <p id="observedChartNote">Measured outputs and the recommended next point.</p>
+              </div>
               <canvas id="paretoCanvas" width="920" height="520" aria-label="Output-space recommendation chart"></canvas>
             </div>
+          </div>
+
+          <div id="baxGpPanel" class="chart-panel gp-panel" hidden>
+            <div class="chart-heading">
+              <h3>GP View of Output Space</h3>
+              <p>Every grid point at its predicted output values, colored by posterior uncertainty.</p>
+            </div>
+            <canvas id="gpCanvas" width="1400" height="560" aria-label="Gaussian-process predictions across the experimental grid"></canvas>
           </div>
 
           <div class="ranked-panel">
@@ -207,6 +229,6 @@
       </section>
     </main>
 
-    <script type="module" src="./src/main.js?v=4"></script>
+    <script type="module" src="./src/main.js?v=5"></script>
   </body>
 </html>

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  BAX_ACQUISITIONS,
   BAX_ALGORITHMS,
   identifyLibrary,
   identifyMaxInBin,
@@ -53,6 +54,7 @@ test("BAX CSV metadata restores the method, algorithm, and parameters", async ()
   const parsed = parseCsv(text);
   assert.equal(parsed.metadata.method, "bax");
   assert.equal(parsed.metadata.bax.algorithm, BAX_ALGORITHMS.MAX_IN_BIN);
+  assert.equal(parsed.metadata.bax.acquisition, BAX_ACQUISITIONS.SWITCH);
   assert.equal(parsed.metadata.bax.maximizeOutput, "yield");
   assert.equal(parsed.metadata.bax.binOutput, "median");
   assert.deepEqual(parsed.metadata.bax.bins[0], { min: 8, max: 10 });
@@ -70,6 +72,7 @@ test("MeanBAX recommends an unmeasured point from the sample grid", async () => 
     csvHeaders: parsed.headers,
   });
   assert.equal(result.method, "bax");
+  assert.equal(result.strategy, "SwitchBAX → MeanBAX");
   assert.equal(result.best.point.length, 3);
   assert.ok(Number.isFinite(result.best.acquisition));
   assert.ok(!result.measured.some((item) => item.x.every((value, index) => value === result.best.point[index])));
@@ -79,6 +82,7 @@ test("bounded-library CSV runs through the full recommendation path", async () =
   const text = await readFile(new URL("../notebooks/sample_bax_library.csv", import.meta.url), "utf8");
   const parsed = parseCsv(text);
   assert.equal(parsed.metadata.bax.algorithm, BAX_ALGORITHMS.LIBRARY);
+  assert.equal(parsed.metadata.bax.acquisition, BAX_ACQUISITIONS.INFO);
   assert.deepEqual(parsed.metadata.bax.bounds[0], { output: "yield", min: 50, max: 70 });
 
   const result = recommendNextBaxExperiment({
@@ -89,5 +93,27 @@ test("bounded-library CSV runs through the full recommendation path", async () =
     csvHeaders: parsed.headers,
   });
   assert.equal(result.algorithm, BAX_ALGORITHMS.LIBRARY);
+  assert.equal(result.strategy, "InfoBAX");
   assert.ok(Number.isFinite(result.best.acquisition));
+});
+
+test("SwitchBAX routes to InfoBAX when the posterior-mean target set is empty", () => {
+  const result = recommendNextBaxExperiment({
+    inputs: [{ name: "x", min: 0, max: 3, step: 1 }],
+    outputs,
+    baxConfig: {
+      algorithm: BAX_ALGORITHMS.LIBRARY,
+      acquisition: BAX_ACQUISITIONS.SWITCH,
+      bounds: [
+        { output: "yield", min: 100, max: 101 },
+        { output: "median", min: 100, max: 101 },
+      ],
+    },
+    csvRows: [
+      { x: "0", yield: "1", median: "1" },
+      { x: "1", yield: "2", median: "2" },
+    ],
+    csvHeaders: ["x", "yield", "median"],
+  });
+  assert.equal(result.strategy, "SwitchBAX → InfoBAX");
 });

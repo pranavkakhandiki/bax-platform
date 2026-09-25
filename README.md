@@ -23,7 +23,13 @@ BAX currently supports:
 - **Max-in-Bin:** find the highest value of one output in each interval of another output. For example, maximize yield in several median particle-size bins.
 - **Bounded Library:** find conditions whose predicted outputs all lie inside specified ranges. For example, median between 1 and 4 and yield between 50 and 60.
 
-The BAX acquisition follows the `multibax-sklearn` MeanBAX procedure used by BAXstics: execute the user algorithm on GP posterior means, then measure the most uncertain unmeasured member of the predicted target set. If that set is empty or already measured, it falls back to uncertainty sampling. The subset algorithms are browser-native ports of [multibax-sklearn](https://github.com/src47/multibax-sklearn), allowing the static GitHub Pages deployment to run without a Python server.
+BAX offers three acquisition strategies:
+
+- **MeanBAX:** execute the target algorithm on GP posterior means, then measure the most uncertain unmeasured member of that predicted target set.
+- **InfoBAX:** use correlated GP posterior draws to estimate which experiment provides the most information about the algorithm-defined target set.
+- **SwitchBAX:** use MeanBAX while it has unmeasured predicted targets, then switch to InfoBAX when that set is empty or exhausted.
+
+The subset algorithms and acquisition strategies are browser-native ports of [multibax-sklearn](https://github.com/src47/multibax-sklearn), allowing the static GitHub Pages deployment to run without a Python server. Browser InfoBAX currently supports grids of up to 500 points.
 
 ## CSV Format
 
@@ -50,6 +56,7 @@ A Max-in-Bin BAX setup uses:
 ```csv
 # method,bax
 # bax_algorithm,max_in_bin
+# bax_acquisition,switchbax
 # bax_maximize,yield
 # bax_bin_output,median
 # bax_bin,8,10
@@ -65,6 +72,7 @@ A bounded-library BAX setup uses one bound per output:
 ```csv
 # method,bax
 # bax_algorithm,library
+# bax_acquisition,infobax
 # bax_bound,yield,50,60
 # bax_bound,median,1,4
 # output,yield
